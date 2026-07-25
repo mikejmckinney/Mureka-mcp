@@ -196,10 +196,10 @@ def _instrumental_result(
     provenance: Provenance | None = None,
 ) -> InstrumentalTaskResult:
     outputs = []
-    for choice in task.get("choices", []):
+    for position, choice in enumerate(task.get("choices", [])):
         outputs.append(
             {
-                "index": choice.get("index"),
+                "index": _choice_index(choice, position),
                 "id": choice.get("id"),
                 "duration_ms": choice.get("duration"),
                 "urls": {
@@ -225,6 +225,11 @@ def _instrumental_result(
             "source": "not_provided_by_api",
         },
     }
+
+
+def _choice_index(choice: dict[str, Any], position: int) -> int:
+    index = choice.get("index")
+    return index if isinstance(index, int) else position
 
 
 def _validate_generation_controls(
@@ -443,8 +448,8 @@ async def download_instrumental(
     choice = next(
         (
             item
-            for item in task.get("choices", [])
-            if item.get("index") == choice_index
+            for position, item in enumerate(task.get("choices", []))
+            if _choice_index(item, position) == choice_index
         ),
         None,
     )

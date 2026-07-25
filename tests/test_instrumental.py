@@ -256,6 +256,37 @@ async def test_download_uses_selected_format_and_refuses_overwrite(
 
 
 @pytest.mark.asyncio
+async def test_missing_choice_index_uses_response_position(monkeypatch, tmp_path):
+    task = {
+        "id": "task-123",
+        "model": "mureka-9",
+        "status": "succeeded",
+        "choices": [
+            {
+                "id": "choice-123",
+                "url": "https://cdn.example/result.mp3",
+                "wav_url": "https://cdn.example/result.wav",
+                "duration": 120000,
+            }
+        ],
+    }
+    client = FakeClient([task, task])
+    monkeypatch.setattr(api, "get_client", lambda: client)
+
+    query_result = await api.get_instrumental_task("task-123")
+    download_result = await api.download_instrumental(
+        "task-123",
+        choice_index=0,
+        output_format="wav",
+        output_directory=str(tmp_path),
+    )
+
+    assert query_result["outputs"][0]["index"] == 0
+    assert download_result["choice_index"] == 0
+    assert client.download[0] == "https://cdn.example/result.wav"
+
+
+@pytest.mark.asyncio
 async def test_upload_reference_returns_provenance_without_file_contents(
     monkeypatch, tmp_path, provenance
 ):

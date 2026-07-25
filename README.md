@@ -37,13 +37,75 @@
 }
 ```
 
-Then restart the Claude app and see 4 MCP tools available in the window, indicating successful loading
+Then restart the Claude app. The original four tools remain available, with
+additional composable tools for production instrumental workflows.
 <div class="title-block" style="text-align: left;">
 <img src="https://raw.githubusercontent.com/SkyworkAI/Mureka-mcp/refs/heads/master/assets/img.png" width="400">
 </div>
 
 ## Optional features
 You can add the `TIME_OUT_SECONDS` environment variable to the `claude_desktop_config.json` to set the timeout period for song or bgm generation waiting(Default 60s).
+
+`MUREKA_MCP_BASE_PATH` may be set to an allowed local media directory. Relative
+upload and output paths resolve beneath this directory; without it, input paths
+must be absolute.
+
+## Instrumental production workflow
+
+The newer instrumental tools keep paid generation separate from read-only
+polling and local downloads:
+
+1. `upload_instrumental_reference` uploads an original or properly licensed
+   30-second MP3/M4A reference and returns its file ID plus caller-supplied
+   provenance.
+2. `submit_instrumental_generation` creates 1-3 candidates using an explicit
+   model and either a prompt or uploaded reference. This is a cost-bearing,
+   non-idempotent operation and is never retried automatically.
+3. `get_instrumental_task` performs one read-only status query.
+4. `wait_for_instrumental_task` performs bounded, asynchronous polling and
+   reports the task ID and last status on timeout.
+5. `download_instrumental` downloads an available MP3, FLAC, or WAV without
+   substituting another codec. Existing files are not overwritten by default.
+
+Structured generation and query responses include task ID, model, status,
+timestamps, output IDs, durations, URLs, provenance, and a cost field. Mureka
+does not currently return per-generation cost, so the cost value is explicitly
+reported as unavailable rather than inferred from account-wide billing.
+
+Example requests to an MCP client:
+
+- "Submit one mureka-9 instrumental candidate from this ambient game-music
+  prompt, then return the task metadata."
+- "Wait up to 300 seconds for instrumental task task-123."
+- "Download choice 0 from task-123 as WAV into /path/to/audio without
+  overwriting an existing file."
+
+### Security and reliability
+
+- `MUREKA_API_KEY` is read only from the environment.
+- API keys, authorization headers, and reference-audio contents are never
+  included in tool results or errors.
+- Generation and upload POST requests are not retried because repeating them
+  can create additional resources or charges.
+- Polling and downloads use finite timeouts. Generated URLs remain governed by
+  Mureka's documented expiration period.
+- Reference provenance is caller-supplied metadata. The server cannot verify
+  ownership or license terms.
+
+### Known API gaps
+
+- Mureka's song extension and region-edit APIs require lyrics and are not
+  documented for instrumental editing, so this server does not expose them as
+  instrumental operations.
+- Stem separation is intentionally not included in this focused workflow.
+- Mureka exposes account-level billing totals but no reliable per-task charge.
+
+### Development install and rollback
+
+Install the tested dependency set from a checkout with `uv sync --all-groups`.
+Run mocked contract tests with `uv run pytest`. To roll back to the last
+published behavior, restore the MCP launcher to `mureka-mcp==0.0.13`; existing
+tool names and signatures remain supported by this change.
 
 ## Example usage
 

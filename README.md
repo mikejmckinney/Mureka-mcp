@@ -94,11 +94,21 @@ Example requests to an MCP client:
 
 ### Known API gaps
 
-- Mureka's song extension and region-edit APIs require lyrics and are not
-  documented for instrumental editing, so this server does not expose them as
-  instrumental operations.
-- Stem separation is intentionally not included in this focused workflow.
+- Mureka's song extension and region-edit APIs accept uploaded instrumental
+  audio but require lyrics. A July 2026 live test using `[Instrumental]` made
+  both calls succeed, but both returned generated lyric sections and changed a
+  195.83-second source to 275.31 and 338.68 seconds. They are therefore not
+  exposed as instrumental-safe operations.
+- Stem separation V1 accepted the same instrumental's MP3 URL and returned a
+  valid six-track WAV archive whose tracks preserved the source duration,
+  sample rate, and channel count. It remains outside this focused change and is
+  a verified candidate for a follow-up tool.
 - Mureka exposes account-level billing totals but no reliable per-task charge.
+
+As of July 2026, [Mureka's published pricing](https://platform.mureka.ai/pricing)
+lists stem separation V1 at $0.06, song extension V8 at $0.10, and region editing
+V8 at $0.10 per song. Observed account-balance deltas matched those prices, but
+prices can change and should be checked before a cost-bearing request.
 
 ### Development install and rollback
 

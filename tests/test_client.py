@@ -47,6 +47,40 @@ async def test_submit_instrumental_sends_current_contract_without_retry():
 
 
 @pytest.mark.asyncio
+async def test_separate_stems_sends_current_contract_without_retry():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "zip_url": "https://cdn.example/stems.zip",
+                "expires_at": 200,
+            },
+        )
+
+    client = MurekaClient(
+        "secret-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    result = await client.separate_stems(
+        url="https://cdn.example/result.mp3",
+        model="audio-separation-1",
+    )
+
+    assert result["zip_url"] == "https://cdn.example/stems.zip"
+    assert len(requests) == 1
+    assert requests[0].url.path == "/v1/song/stem"
+    assert requests[0].headers["Authorization"] == "Bearer secret-key"
+    assert json.loads(requests[0].content) == {
+        "url": "https://cdn.example/result.mp3",
+        "model": "audio-separation-1",
+    }
+
+
+@pytest.mark.asyncio
 async def test_api_errors_do_not_expose_api_key():
     def handler(request):
         raise httpx.ConnectTimeout("network timeout", request=request)

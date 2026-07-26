@@ -95,6 +95,18 @@ class MurekaClient:
             "GET", f"/v1/instrumental/query/{task_id}"
         )
 
+    async def separate_stems(
+        self,
+        *,
+        url: str,
+        model: str,
+    ) -> dict[str, Any]:
+        return await self._request_json(
+            "POST",
+            "/v1/song/stem",
+            json={"url": url, "model": model},
+        )
+
     async def upload_instrumental_reference(
         self, input_path: Path
     ) -> dict[str, Any]:

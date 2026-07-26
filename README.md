@@ -66,6 +66,22 @@ polling and local downloads:
    reports the task ID and last status on timeout.
 5. `download_instrumental` downloads an available MP3, FLAC, or WAV without
    substituting another codec. Existing files are not overwritten by default.
+6. `separate_instrumental_stems` resolves a completed instrumental choice,
+   submits one non-retried stem request with an explicit separation model, and
+   downloads the WAV-stem ZIP without overwriting an existing file by default.
+
+Stem model capabilities are defined by Mureka's current API contract:
+
+- `audio-separation-1`: up to five WAV stems (instrumental, vocals, drums,
+  bass, and other); published price $0.06/song.
+- `audio-separation-2`: up to twelve WAV/MIDI stems; published price
+  $0.70/song.
+- `audio-separation-3`: vocal and accompaniment WAV/MIDI stems; published
+  price $0.20/song.
+
+Prices are current as of July 2026 and can change. Check
+[Mureka pricing](https://platform.mureka.ai/pricing) before submitting the
+cost-bearing, non-idempotent request.
 
 Structured generation and query responses include task ID, model, status,
 timestamps, output IDs, durations, URLs, provenance, and a cost field. Mureka
@@ -79,14 +95,16 @@ Example requests to an MCP client:
 - "Wait up to 300 seconds for instrumental task task-123."
 - "Download choice 0 from task-123 as WAV into /path/to/audio without
   overwriting an existing file."
+- "Separate choice 0 from task-123 with audio-separation-1 and download the
+  stem ZIP into /path/to/audio without overwriting an existing file."
 
 ### Security and reliability
 
 - `MUREKA_API_KEY` is read only from the environment.
 - API keys, authorization headers, and reference-audio contents are never
   included in tool results or errors.
-- Generation and upload POST requests are not retried because repeating them
-  can create additional resources or charges.
+- Generation, upload, and stem POST requests are not retried because repeating
+  them can create additional resources or charges.
 - Polling and downloads use finite timeouts. Generated URLs remain governed by
   Mureka's documented expiration period.
 - Reference provenance is caller-supplied metadata. The server cannot verify
@@ -103,14 +121,15 @@ Example requests to an MCP client:
   changed the 195.83-second source to 338.68 seconds and is not instrumental-safe.
 - Stem separation V1 accepted the same instrumental's MP3 URL and returned a
   valid six-track WAV archive whose tracks preserved the source duration,
-  sample rate, and channel count. It remains outside this focused change and is
-  a verified candidate for a follow-up tool.
+  sample rate, and channel count. The verified workflow is exposed through
+  `separate_instrumental_stems`.
 - Mureka exposes account-level billing totals but no reliable per-task charge.
 
 As of July 2026, [Mureka's published pricing](https://platform.mureka.ai/pricing)
-lists stem separation V1 at $0.06, song extension V8 at $0.10, and region editing
-V8 at $0.10 per song. Observed account-balance deltas matched those prices, but
-prices can change and should be checked before a cost-bearing request.
+lists stem separation V1 at $0.06, V2 at $0.70, V3 at $0.20, song extension V8
+at $0.10, and region editing V8 at $0.10 per song. Observed account-balance
+deltas for the tested V1 stem, extension, and region edit matched those prices,
+but prices can change and should be checked before a cost-bearing request.
 
 ### Development install and rollback
 

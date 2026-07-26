@@ -35,6 +35,11 @@ if time_out_env is not None:
 TERMINAL_STATUSES = {"succeeded", "failed", "timeouted", "cancelled"}
 MODEL_VALUES = {"auto", "mureka-7.6", "mureka-8", "mureka-9"}
 FORMAT_URL_KEYS = {"mp3": "url", "flac": "flac_url", "wav": "wav_url"}
+STEM_MODEL_VALUES = {
+    "audio-separation-1",
+    "audio-separation-2",
+    "audio-separation-3",
+}
 monotonic = time.monotonic
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -96,6 +101,17 @@ class InstrumentalDownloadResult(TypedDict):
     duration_ms: int | None
     output_path: str
     source_url: str
+
+
+class StemSeparationResult(TypedDict):
+    task_id: str
+    choice_index: int
+    choice_id: str | None
+    model: str
+    output_path: str
+    expires_at: int | None
+    midi_zip_url: str | None
+    cost: CostMetadata
 
 
 def is_file_writeable(path: Path) -> bool:
@@ -480,6 +496,101 @@ async def download_instrumental(
         "duration_ms": choice.get("duration"),
         "output_path": str(output_path),
         "source_url": url,
+    }
+
+
+@mcp.tool(
+    description="""Separate one completed instrumental choice into stems.
+
+    This cost-bearing, non-idempotent operation submits exactly one request and
+    downloads the returned WAV-stem ZIP. Select the model explicitly: model 1
+    supports up to five WAV stems, model 2 up to twelve WAV/MIDI stems, and
+    model 3 vocals/accompaniment WAV/MIDI stems. July 2026 published prices are
+    $0.06, $0.70, and $0.20 per song respectively; prices can change, so check
+    Mureka pricing before use. Existing files are not overwritten unless
+    overwrite is explicitly true.
+    """,
+    annotations={
+        "title": "Separate Instrumental Stems",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def separate_instrumental_stems(
+    task_id: str,
+    choice_index: Annotated[int, Field(ge=0)] = 0,
+    model: Literal[
+        "audio-separation-1",
+        "audio-separation-2",
+        "audio-separation-3",
+    ] = "audio-separation-1",
+    output_directory: str | None = None,
+    overwrite: bool = False,
+) -> StemSeparationResult:
+    task_id = _validate_task_id(task_id)
+    if choice_index < 0:
+        raise ValueError("choice_index must not be negative")
+    if model not in STEM_MODEL_VALUES:
+        raise ValueError(
+            f"Unsupported stem model {model!r}; choose one of "
+            f"{sorted(STEM_MODEL_VALUES)}"
+        )
+
+    client = get_client()
+    task = await client.get_instrumental_task(task_id)
+    if task.get("status") != "succeeded":
+        raise ValueError(
+            f"Instrumental task {task_id} is {task.get('status', 'unknown')}, "
+            "not succeeded"
+        )
+    choice = next(
+        (
+            item
+            for position, item in enumerate(task.get("choices", []))
+            if _choice_index(item, position) == choice_index
+        ),
+        None,
+    )
+    if choice is None:
+        raise ValueError(
+            f"Choice index {choice_index} is unavailable for task {task_id}"
+        )
+    source_url = choice.get("url")
+    if not source_url:
+        raise ValueError(
+            f"MP3 output is unavailable for choice {choice_index}; "
+            "stem separation requires an MP3 or M4A URL"
+        )
+
+    output_dir = make_output_path(output_directory, global_base_path)
+    output_path = output_dir / (
+        f"mureka-{task_id}-{choice_index}-{model}-stems.zip"
+    )
+    if output_path.exists() and not overwrite:
+        raise FileExistsError(
+            f"File {output_path} already exists and overwrite=False"
+        )
+
+    stem_result = await client.separate_stems(url=source_url, model=model)
+    zip_url = stem_result.get("zip_url")
+    if not zip_url:
+        raise RuntimeError("Mureka did not return a stem ZIP URL")
+    await client.download_file(zip_url, output_path)
+    return {
+        "task_id": task_id,
+        "choice_index": choice_index,
+        "choice_id": choice.get("id"),
+        "model": model,
+        "output_path": str(output_path),
+        "expires_at": stem_result.get("expires_at"),
+        "midi_zip_url": stem_result.get("midi_zip_url"),
+        "cost": {
+            "amount": None,
+            "currency": None,
+            "source": "not_provided_by_api",
+        },
     }
 
 

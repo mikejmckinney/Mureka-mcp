@@ -12,6 +12,7 @@ class FakeClient:
         self.submission = None
         self.download = None
         self.upload = None
+        self.stem_submission = None
 
     async def submit_instrumental(self, **kwargs):
         self.submission = kwargs
@@ -39,6 +40,14 @@ class FakeClient:
             "bytes": input_path.stat().st_size,
             "created_at": 100,
             "purpose": "instrumental",
+        }
+
+    async def separate_stems(self, **kwargs):
+        self.stem_submission = kwargs
+        return {
+            "zip_url": "https://cdn.example/stems.zip",
+            "midi_zip_url": "https://cdn.example/stems-midi.zip",
+            "expires_at": 200,
         }
 
 
@@ -287,6 +296,121 @@ async def test_missing_choice_index_uses_response_position(monkeypatch, tmp_path
 
 
 @pytest.mark.asyncio
+async def test_separate_stems_uses_task_choice_and_downloads_zip(
+    monkeypatch, tmp_path
+):
+    task = {
+        "id": "task-123",
+        "model": "mureka-9",
+        "status": "succeeded",
+        "choices": [
+            {
+                "id": "choice-123",
+                "url": "https://cdn.example/result.mp3",
+                "duration": 120000,
+            }
+        ],
+    }
+    client = FakeClient([task])
+    monkeypatch.setattr(api, "get_client", lambda: client)
+
+    result = await api.separate_instrumental_stems(
+        "task-123",
+        choice_index=0,
+        model="audio-separation-2",
+        output_directory=str(tmp_path),
+    )
+
+    output_path = tmp_path / (
+        "mureka-task-123-0-audio-separation-2-stems.zip"
+    )
+    assert output_path.read_bytes() == b"audio"
+    assert client.stem_submission == {
+        "url": "https://cdn.example/result.mp3",
+        "model": "audio-separation-2",
+    }
+    assert client.download == ("https://cdn.example/stems.zip", output_path)
+    assert result == {
+        "task_id": "task-123",
+        "choice_index": 0,
+        "choice_id": "choice-123",
+        "model": "audio-separation-2",
+        "output_path": str(output_path),
+        "expires_at": 200,
+        "midi_zip_url": "https://cdn.example/stems-midi.zip",
+        "cost": {
+            "amount": None,
+            "currency": None,
+            "source": "not_provided_by_api",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_separate_stems_refuses_overwrite_before_cost_bearing_request(
+    monkeypatch, tmp_path
+):
+    output_path = tmp_path / (
+        "mureka-task-123-0-audio-separation-1-stems.zip"
+    )
+    output_path.write_bytes(b"existing")
+    client = FakeClient(
+        [
+            {
+                "id": "task-123",
+                "status": "succeeded",
+                "choices": [{"url": "https://cdn.example/result.mp3"}],
+            }
+        ]
+    )
+    monkeypatch.setattr(api, "get_client", lambda: client)
+
+    with pytest.raises(FileExistsError, match="overwrite=False"):
+        await api.separate_instrumental_stems(
+            "task-123",
+            model="audio-separation-1",
+            output_directory=str(tmp_path),
+        )
+
+    assert client.stem_submission is None
+    assert client.download is None
+
+
+@pytest.mark.asyncio
+async def test_separate_stems_requires_succeeded_task_with_mp3(
+    monkeypatch, tmp_path
+):
+    client = FakeClient(
+        [{"id": "task-123", "status": "running", "choices": []}]
+    )
+    monkeypatch.setattr(api, "get_client", lambda: client)
+
+    with pytest.raises(ValueError, match="not succeeded"):
+        await api.separate_instrumental_stems(
+            "task-123",
+            model="audio-separation-1",
+            output_directory=str(tmp_path),
+        )
+
+    assert client.stem_submission is None
+
+
+@pytest.mark.asyncio
+async def test_separate_stems_rejects_unsupported_model(monkeypatch, tmp_path):
+    client = FakeClient()
+    monkeypatch.setattr(api, "get_client", lambda: client)
+
+    with pytest.raises(ValueError, match="Unsupported stem model"):
+        await api.separate_instrumental_stems(
+            "task-123",
+            model="audio-separation-4",
+            output_directory=str(tmp_path),
+        )
+
+    assert client.task_results == []
+
+
+@pytest.mark.asyncio
 async def test_upload_reference_returns_provenance_without_file_contents(
     monkeypatch, tmp_path, provenance
 ):
@@ -343,6 +467,15 @@ async def test_tools_publish_cost_and_read_only_annotations():
     query = tools["get_instrumental_task"]
     assert query.annotations.readOnlyHint is True
     assert query.annotations.idempotentHint is True
+
+    stems = tools["separate_instrumental_stems"]
+    assert stems.annotations.readOnlyHint is False
+    assert stems.annotations.idempotentHint is False
+    assert stems.inputSchema["properties"]["model"]["enum"] == [
+        "audio-separation-1",
+        "audio-separation-2",
+        "audio-separation-3",
+    ]
 
 
 @pytest.mark.asyncio
